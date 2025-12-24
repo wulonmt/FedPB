@@ -10,7 +10,6 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from utils.init_pos_config import get_init_pos, get_init_list, assert_alarm
 
 import cv2
-import csv
 import pandas as pd
 
 from collections import OrderedDict

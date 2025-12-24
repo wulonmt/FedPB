@@ -1,28 +1,18 @@
 import gymnasium as gym
-import torch as th
-from stable_baselines3 import SAC, PPO
-from torch.distributions import Categorical
-import torch
-import torch.nn as nn
-import numpy as np
-from torch.nn import functional as F
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import VecNormalize
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.vec_env import SubprocVecEnv
-from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnNoModelImprovement
-from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
+from stable_baselines3 import PPO
 
 import argparse
 from datetime import datetime
 import Env
 from utils.init_pos_config import get_init_pos, is_valid_env, get_available_envs, is_costum_env
-from utils.CustomSAC import CustomSAC
 from record import RewardDisplayWrapper
 import cv2  # show the RewrdDisplayWrapper render
+from pathlib import Path
 
 from utils.PerturbationPPO import PerturbationPPO
 from utils.RandomNoisePPO import RandomNoisePPO
+
+from normalized_env import get_train_norm_env, save_train_norm_env, get_eval_norm_env
 
 MODEL_LIST = ["PBPPO", "PPO", "RNPPO"]
 MODEL_STRUCTURE = [256, 256]
@@ -35,6 +25,9 @@ def parse_arguments():
     parser.add_argument("-i", "--index", help="Environment index", type=int, default=0)
     parser.add_argument("-r", "--regular", help="using regular in compute kl divergence", action="store_true")
     parser.add_argument("-t", "--time_steps", help="Total Timesteps", type=int, default=2e6)
+    # eval only
+    parser.add_argument("--eval", action="store_true", help="Evaluate the model")
+    parser.add_argument("-p", "--path", help="directory of eval model", type=str, default=None)
     return parser.parse_args()
 
 
@@ -63,17 +56,7 @@ def train(env_name_arg=None, model = "PBPPO", index = 0, using_regular = False, 
     if env_name is None:
         raise ValueError("Environment name must be provided either in the train() function or via command-line argument.")
 
-    assert is_valid_env(env_name), f"Only environments {', '.join(get_available_envs())} are available"
-    if not is_costum_env(env_name):
-        trained_env = make_vec_env(env_name, n_envs=n_cpu, vec_env_cls=SubprocVecEnv, seed = 1)
-        eval_env = gym.make(env_name)
-    else:
-        trained_env = make_vec_env(env_name, n_envs=n_cpu, vec_env_cls=SubprocVecEnv, seed = 1, env_kwargs = get_init_pos(env_name, index))
-        eval_env = gym.make(env_name, **get_init_pos(env_name, index))
-
-    # early stopping setting
-    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=30, verbose=1)
-    eval_callback = EvalCallback(eval_env, eval_freq=10000, callback_after_eval=stop_train_callback, verbose=1)
+    training_env = get_train_norm_env(env_name, index, n_cpu)
 
     tensorboard_log = f"./env_test/{env_name}_id{index}_"
     
@@ -88,13 +71,9 @@ def train(env_name_arg=None, model = "PBPPO", index = 0, using_regular = False, 
 
     policy_kwargs=dict(net_arch=dict(pi=MODEL_STRUCTURE, vf=MODEL_STRUCTURE))
 
-    if env_name == "HalfCheetahFixLength-v0":
-        policy_kwargs=dict(activation_fn=nn.Tanh, net_arch=dict(pi=MODEL_STRUCTURE, vf=MODEL_STRUCTURE))
-        trained_env = VecNormalize(trained_env, norm_obs=True, norm_reward=True, clip_obs=10.)
-
     if MODEL == "PPO":
         model = PPO("MlpPolicy",
-                    trained_env,
+                    training_env,
                     policy_kwargs=policy_kwargs,
                     verbose=1,
                     tensorboard_log=tb_log_name,
@@ -104,7 +83,7 @@ def train(env_name_arg=None, model = "PBPPO", index = 0, using_regular = False, 
         
     elif MODEL == "PBPPO":
         model = PerturbationPPO("MlpPolicy",
-                    trained_env,
+                    training_env,
                     policy_kwargs=policy_kwargs,
                     verbose=1,
                     tensorboard_log=tb_log_name,
@@ -116,7 +95,7 @@ def train(env_name_arg=None, model = "PBPPO", index = 0, using_regular = False, 
         
     elif MODEL == "RNPPO":
         model = RandomNoisePPO("MlpPolicy",
-                    trained_env,
+                    training_env,
                     policy_kwargs=policy_kwargs,
                     verbose=1,
                     tensorboard_log=tb_log_name,
@@ -125,38 +104,25 @@ def train(env_name_arg=None, model = "PBPPO", index = 0, using_regular = False, 
                     )
 
     print(model.policy)
-    # breakpoint()
+
     # Train the agent
     model.learn(total_timesteps=int(timesteps), tb_log_name=time_str)
     # model.learn(total_timesteps=int(3e5), tb_log_name=time_str, callback = eval_callback)
     print("log name: ", tb_log_name)
     model.save(tb_log_name + "/model")
-
-    if env_name == "HalfCheetahFixLength-v0":
-        trained_env.save(tb_log_name + "/vec_normalize.pkl")
+    save_train_norm_env(training_env, tb_log_name)
 
     ############ evaluation ################
 
-    if not is_costum_env(env_name):
-        env = gym.make(env_name, render_mode="human")
-    else:
-        env = gym.make(env_name, render_mode="human", **get_init_pos(env_name, index))
-
-    if env_name == "HalfCheetahFixLength-v0":
-        env_kwargs = get_init_pos(env_name, index)
-        env_kwargs["render_mode"] = "human"
-        env = make_vec_env(env_name, n_envs=1, env_kwargs=env_kwargs)
-        env = VecNormalize.load(tb_log_name + "/vec_normalize.pkl", env)
-        env.training = False
-        env.norm_reward = False
+    env = get_eval_norm_env(env_name, tb_log_name, index=index, render_mode="human")
 
     while True:
         obs, info = env.reset()
-        done = truncated = False
+        done = False
         counter = 0
-        while not (done or truncated):
+        while not done:
             action, _ = model.predict(obs)
-            obs, reward, done, truncated, info = env.step(action)
+            obs, reward, done, info = env.step(action)
             env.render()
             counter += 1
             if counter > 1000:
@@ -173,11 +139,17 @@ def show_reward_frame(window_name, img):
         # 等待 1ms，讓畫面更新，ESC 鍵退出
         key = cv2.waitKey(delay) & 0xFF
 
-def eval(env_name_arg=None): 
-    path = "env_test\\HalfCheetahFixLength-v0_id1_202512240250_PPO"
-    model = PPO.load(path + "/model")
+def eval(
+        env_name_arg=None,
+        path=None,
+        model_name=None,
+        index=0
+        ): 
+    # path = "env_test\\CartPoleSwingUpV1WithAdjustablePole-v0_id0_202512250353_PPO"
+    # model = PPO.load(path + "/model")
     # model = PerturbationPPO.load(path + "model")
-    env_name = "HalfCheetahFixLength-v0"
+    # env_name = "CartPoleSwingUpV1WithAdjustablePole-v0"
+    env_name = None
     
     if env_name is None:
         env_name = env_name_arg
@@ -185,50 +157,57 @@ def eval(env_name_arg=None):
     if env_name is None:
         raise ValueError("Environment name must be provided either in the train() function or via command-line argument.")
 
-    assert is_valid_env(env_name), f"Only environments {', '.join(get_available_envs(env_name))} are available"
-    index = 0
-    # env = gym.make(env_name, render_mode="human")
-    # env = gym.make(env_name, render_mode="human", **get_init_pos(env_name, index))
+    if model_name is None:
+        model_name = "PPO"
+
+    model_path = Path(path) / Path("model")
+
+    if model_name == "PBPPO":
+        model = PerturbationPPO.load(model_path)
+    elif model_name == "PPO":
+        model = PPO.load(model_path)
+    elif model_name == "RNPPO":
+        model = RandomNoisePPO.load(model_path)
+    else:
+        raise ValueError("Model name must be 'PBPPO', 'PPO', or 'RNPPO'")
 
     #Show Reward at window
-    # env = gym.make(env_name, render_mode="rgb_array", **get_init_pos(env_name, index))
-    if not is_costum_env(env_name):
-        env = gym.make(env_name, render_mode="rgb_array")
-    else:
-        env = gym.make(env_name, render_mode="rgb_array", **get_init_pos(env_name, index))
-
-    env = RewardDisplayWrapper(env)
-    
-
-    if env_name == "HalfCheetahFixLength-v0":
-        env_kwargs = get_init_pos(env_name, index)
-        env_kwargs["render_mode"] = "human"
-        env = make_vec_env(env_name, n_envs=1, env_kwargs=env_kwargs)
-        env = VecNormalize.load(path + "/vec_normalize.pkl", env)
-        env.training = False
-        env.norm_reward = False
+    env = get_eval_norm_env(
+        env_name, 
+        path, 
+        render_mode="human", 
+        index=index, 
+        wrapper_class=RewardDisplayWrapper
+        )
 
     while True:
-        if env_name == "HalfCheetahFixLength-v0":
-            obs = env.reset()
-        else:
-            obs, info = env.reset()
-        done = truncated = False
+        obs = env.reset()
+        done = False
 
-        while not (done or truncated):
+        while not (done):
             action, _ = model.predict(obs)
-            if env_name == "HalfCheetahFixLength-v0":
-                obs, reward, done, info = env.step(action)
-            else:
-                obs, reward, done, truncated, info = env.step(action)
+            obs, reward, done, info = env.step(action)
             # env.render()
             img = env.render()
             show_reward_frame(env_name, img)
-            if done or truncated:
+            if done:
                 print("done")
                 cv2.waitKey(1000)  # 暫停 1 秒
 
 if __name__ == "__main__":
     args = parse_arguments()
-    # train(env_name_arg=args.environment, model=args.model, index=args.index, using_regular=args.regular, timesteps=args.time_steps)
-    eval(env_name_arg=args.environment)
+    if args.eval:
+        eval(
+            path=args.path, 
+            model_name=args.model, 
+            index=args.index, 
+            env_name_arg=args.environment
+            )
+    else:
+        train(
+            env_name_arg=args.environment, 
+            model=args.model, 
+            index=args.index, 
+            using_regular=args.regular, 
+            timesteps=args.time_steps
+            )
