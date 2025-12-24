@@ -1,0 +1,32 @@
+{
+  "CartPoleSwingUpV1WithAdjustablePole-v0": {
+    "network_dim": 64,
+    "perturbation_scale": 0.15,
+    "local_timesteps": 4096,
+    "global_rounds": 300
+  },
+  "HopperFixLength-v0": {
+    "network_dim": 128,
+    "perturbation_scale": 0.2,
+    "local_timesteps": 4096,
+    "global_rounds": 360
+  },
+  "HalfCheetahFixLength-v0": {
+    "network_dim": 128,
+    "perturbation_scale": 0.25,
+    "local_timesteps": 4096,
+    "global_rounds": 360
+  },
+  "Pendulum-v1": {
+    "network_dim": 64,
+    "perturbation_scale": 0.15,
+    "local_timesteps": 4096,
+    "global_rounds": 150
+  },
+  "default": {
+    "network_dim": 64,
+    "perturbation_scale": 0.1,
+    "local_timesteps": 4096,
+    "global_rounds": 200
+  }
+}

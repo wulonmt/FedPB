@@ -1,0 +1,15 @@
+services:
+  fed_experiment:
+    build: .
+    container_name: fed_experiment
+    # 自動執行 run_experiments.sh 腳本
+    command: bash run_experiments.sh
+    volumes:
+      - .:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    stdin_open: true
+    tty: true
