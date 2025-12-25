@@ -23,6 +23,7 @@ from utils.PerturbationPPO import PerturbationPPO
 from utils.RandomNoisePPO import RandomNoisePPO
 
 from utils.init_pos_config import get_init_pos, assert_alarm, get_init_list
+from normalized_env import get_train_norm_env, save_train_norm_env, get_eval_norm_env
 
 MODEL_LIST = ["PBPPO", "PPO", "RNPPO"]
 ENV_CONFIG_PATH="env_config.json"
@@ -85,13 +86,8 @@ class PerturbationPPOClient(fl.client.NumPyClient):
             print(f"{'='*60}\n")
         
         init_length = len(get_init_list(environment))
-        if(client_index < init_length):
-            self.env = make_vec_env(f"{environment}", n_envs=n_cpu, vec_env_cls=SubprocVecEnv, 
-                                    env_kwargs=get_init_pos(environment, client_index))
-        else:
-            random_index = np.random.randint(0, init_length)
-            self.env = make_vec_env(f"{environment}", n_envs=n_cpu, vec_env_cls=SubprocVecEnv, 
-                                    env_kwargs=get_init_pos(environment, random_index))
+        env_index = client_index if client_index < init_length else np.random.randint(0, init_length)
+        self.env = get_train_norm_env(environment, env_index, n_cpu)
         
         self.tensorboard_log = f"{environment}/" if save_log == "True" else None
         time_str = Ptime()
@@ -248,9 +244,10 @@ class PerturbationPPOClient(fl.client.NumPyClient):
             
             # 儲存模型
             if self.save_log == "True":
-                save_path = self.tensorboard_log + self.log_name + "/model"
+                save_path = self.tensorboard_log + self.log_name
                 print(f"[Client {self.client_index}] Saving model to: {save_path}")
-                self.model.save(save_path)
+                self.model.save(save_path + "/model")
+                save_train_norm_env(self.env, save_path)
 
 
             # 使用訓練步數作為權重
@@ -272,7 +269,13 @@ class PerturbationPPOClient(fl.client.NumPyClient):
         """
         print(f"[Client {self.client_index}] Evaluating model")
         self.set_parameters(parameters)
+
+        self.env.training = False    # 停止更新 Observation 的均值和標準差
+        self.env.norm_reward = False
         reward_mean, reward_std = evaluate_policy(self.model, self.env)
+
+        self.env.training = True    # 完成驗證後恢復訓練狀態
+        self.env.norm_reward = True
         
         print(f"[Client {self.client_index}] Evaluation - Mean: {reward_mean:.2f}, Std: {reward_std:.2f}")
         

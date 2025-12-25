@@ -3,7 +3,7 @@
     "network_dim": 64,
     "perturbation_scale": 0.15,
     "local_timesteps": 4096,
-    "global_rounds": 300
+    "global_rounds": 200
   },
   "HopperFixLength-v0": {
     "network_dim": 128,

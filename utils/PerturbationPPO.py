@@ -108,7 +108,7 @@ class PerturbationPPO(PPO):
         delay_perturb_train: int = 0,
         smooth_factor: float = 0.1,
         kld_use_regul: bool = False,
-        num_mc_samples: int = 10,
+        num_mc_samples: int = 4,
         init_perturb_scale: float = 0.001,
         target_perturb_scale: float = 0.15,
         perturb_warmup_steps: int = 900_000,
