@@ -39,7 +39,8 @@ def get_eval_norm_env(env_name: str,
                       render_mode: str = "rgb_array", 
                       index: int = 0, 
                       n_cpu: int = 1, 
-                      wrapper_class = None
+                      wrapper_class = None,
+                      wrapper_kwargs = None
                       ):
     """
     取得評估用的環境，載入vec_normalize.pkl
@@ -61,7 +62,8 @@ def get_eval_norm_env(env_name: str,
                        n_envs=n_cpu, 
                        vec_env_cls=DummyVecEnv, 
                        env_kwargs=env_kwargs, 
-                       wrapper_class=wrapper_class
+                       wrapper_class=wrapper_class,
+                       wrapper_kwargs=wrapper_kwargs,
                        )
     
     norm_path = Path(path) / Path("vec_normalize.pkl")

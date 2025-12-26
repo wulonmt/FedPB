@@ -6,6 +6,7 @@ from typing import Optional
 from stable_baselines3.common.vec_env import VecVideoRecorder, DummyVecEnv
 from utils.init_pos_config import get_init_pos, is_costum_env
 import Env
+from normalized_env import get_eval_norm_env
 
 
 class PerturbationVisualizerWrapper(gym.Wrapper):
@@ -17,7 +18,7 @@ class PerturbationVisualizerWrapper(gym.Wrapper):
     def __init__(
         self, 
         env: gym.Env,
-        perturb_net: Optional[th.nn.Module] = None,
+        perturb_net: Optional[th.nn.Module],
         device: str = "cpu",
         # Rendering parameters (for CartPole)
         screen_width: int = 600,
@@ -510,7 +511,7 @@ class PerturbationVisualizerWrapper(gym.Wrapper):
         # Action arrow
         action_x = self.screen_width // 2
         action_y = self.screen_height // 4
-        action_x_end = action_x + int(action * self.action_arrow_scale)
+        action_x_end = action_x + int(float(action) * self.action_arrow_scale)
         
         cv2.arrowedLine(
             img,
@@ -620,7 +621,7 @@ class PerturbationVisualizerWrapper(gym.Wrapper):
 # ============================================================================
 
 def record_perturbation_demo(
-    env_name: str,
+    env,
     model,
     perturb_net: th.nn.Module,
     save_dir: str = "./perturbation_videos",
@@ -643,24 +644,24 @@ def record_perturbation_demo(
     import os
     os.makedirs(save_dir, exist_ok=True)
     
-    # Create environment with ghost mode wrapper
-    def make_env():
-        env = get_env(env_name)
-        env = PerturbationVisualizerWrapper(
-            env, 
-            perturb_net=perturb_net,
-            device=device,
-            ghost_alpha=0.9,
-            show_velocity_arrows=True
-        )
-        return env
+    # # Create environment with ghost mode wrapper
+    # def make_env():
+    #     env = get_env(env_name)
+    #     env = PerturbationVisualizerWrapper(
+    #         env, 
+    #         perturb_net=perturb_net,
+    #         device=device,
+    #         ghost_alpha=0.9,
+    #         show_velocity_arrows=True
+    #     )
+    #     return env
     
-    # Create vectorized environment
-    vec_env = DummyVecEnv([make_env])
+    # # Create vectorized environment
+    # vec_env = DummyVecEnv([make_env])
     
     # Wrap with video recorder
     vec_env = VecVideoRecorder(
-        vec_env, 
+        env, 
         save_dir,
         record_video_trigger=lambda x: x == 0,
         name_prefix="robust_agent_ghost_mode",
@@ -704,23 +705,37 @@ if __name__ == "__main__":
     
     # Load trained PerturbationPPO model
     # Replace with your actual loading code
-    from utils.PerturbationPPO import PerturbationPPO  # Replace with your module
+    from utils.PerturbationPPO import PerturbationPPO
     
-    env = get_env(env_name, index=0)
-    model_path = "multiagent\\2025_12_24_14_56_CartPoleSwingUpV1WithAdjustablePole-v0_c3\\PBPPO_regul0\\rep1\\CartPoleSwingUpV1WithAdjustablePole-v0\\0_PerturbPPO"
-    model_path = model_path + "/model"
+    path = "multiagent\\2025_12_25_19_35_CartPoleSwingUpV1WithAdjustablePole-v0_c3\\PBPPO_regul0\\rep1"
+    norm_path = path + f"/{env_name}/0_PerturbPPO"
+    env = get_eval_norm_env(env_name, 
+                            path=norm_path, 
+                            render_mode="rgb_array", 
+                            index=0,
+                            )
+    model_path = norm_path + "/model"
     model = PerturbationPPO.load(model_path, env=env, device="cpu")
     perturb_net = model.perturb_net
-    
     print("✓ Model and perturbation network loaded")
     
     # ========== Option 1: Record video with ghost mode ==========
     print("\n" + "="*70)
     print("2. Recording demonstration video...")
     print("="*70)
+
+    env = get_eval_norm_env(env_name, 
+                            path=norm_path, 
+                            render_mode="rgb_array", 
+                            index=0, 
+                            wrapper_class=PerturbationVisualizerWrapper,
+                            wrapper_kwargs={
+                                "perturb_net": perturb_net,
+                                }
+                            )
     
     record_perturbation_demo(
-        env_name=env_name,
+        env=env,
         model=model,
         perturb_net=perturb_net,
         save_dir="./perturbation_demos",
