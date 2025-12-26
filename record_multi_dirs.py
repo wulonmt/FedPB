@@ -788,7 +788,6 @@ def evaluate_and_record_experiments(
 if __name__ == "__main__":
     import sys
     
-    # 範例使用
     if len(sys.argv) > 1:
         root_dir = sys.argv[1]
     else:

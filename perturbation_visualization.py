@@ -695,7 +695,14 @@ def get_env(env_name: str, index: int = 0, mode:str = "rgb_array"):
 # ============================================================================
 
 if __name__ == "__main__":
-    import gymnasium as gym
+    import sys
+    import os
+    from pathlib import Path
+
+    if len(sys.argv) > 1:
+        path = sys.argv[1]
+    else:
+        assert False, "Please specify model directory"
     
     # Example: Load trained model and perturbation network
     env_name = "CartPoleSwingUpV1WithAdjustablePole-v0"
@@ -708,14 +715,15 @@ if __name__ == "__main__":
     # Replace with your actual loading code
     from utils.PerturbationPPO import PerturbationPPO
     
-    path = "multiagent\\2025_12_25_19_35_CartPoleSwingUpV1WithAdjustablePole-v0_c3\\PBPPO_regul0\\rep1"
-    norm_path = path + f"/{env_name}/0_PerturbPPO"
+    norm_path = path + f"{env_name}/0_PerturbPPO"
+    model_path = norm_path + "/model"
+    assert os.path.isdir(norm_path), f"Normalization file not found: {norm_path}"
+
     env = get_eval_norm_env(env_name, 
                             path=norm_path, 
                             render_mode="rgb_array", 
                             index=0,
                             )
-    model_path = norm_path + "/model"
     model = PerturbationPPO.load(model_path, env=env, device="cpu")
     perturb_net = model.perturb_net
     print("✓ Model and perturbation network loaded")
