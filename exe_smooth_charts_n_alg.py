@@ -309,7 +309,7 @@ Usage:
     
     parser.add_argument('-p', '--prefixes', 
                         type=str, 
-                        default='0,1,2,3,4',
+                        default='0,1,2',
                         help='Comma-separated list of environment prefixes (default: 0,1,2,3,4)')
     
     parser.add_argument('--no-auto-find', 
