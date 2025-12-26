@@ -114,9 +114,19 @@ class Viewer(object):
             # was requested. (Guess Xmonad was preserving a pixel for
             # the boundary.) So we use the buffer height/width rather
             # than the requested one.
-            # 更改105行問題後，通道改成3
-            # arr = arr.reshape(buffer.height, buffer.width, 4)
-            arr = arr.reshape(buffer.height, buffer.width, 3)
+            # 1. 計算總像素數量 (高 * 寬)
+            num_pixels = buffer.height * buffer.width
+
+            # 2. 自動推算通道數 (Channels)
+            # 邏輯：陣列總長度 / 像素數量 = 每個像素佔幾個數值 (3 代表 RGB, 4 代表 RGBA)
+            n_channels = arr.size // num_pixels
+
+            # (選用) 加一個安全檢查，確保整除且通道數合理
+            assert arr.size % num_pixels == 0, "錯誤：數據長度無法被解析度整除！"
+            assert n_channels in [3, 4], f"警告：檢測到異常的通道數 {n_channels}"
+
+            # 3. 動態 Reshape
+            arr = arr.reshape(buffer.height, buffer.width, n_channels)
             arr = arr[::-1,:,0:3]
         self.window.flip()
         self.onetime_geoms = []

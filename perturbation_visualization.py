@@ -511,7 +511,8 @@ class PerturbationVisualizerWrapper(gym.Wrapper):
         # Action arrow
         action_x = self.screen_width // 2
         action_y = self.screen_height // 4
-        action_x_end = action_x + int(float(action) * self.action_arrow_scale)
+        # CartPole action is only 1-dimension
+        action_x_end = action_x + int(action * self.action_arrow_scale)
         
         cv2.arrowedLine(
             img,
