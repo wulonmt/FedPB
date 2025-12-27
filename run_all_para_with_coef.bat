@@ -3,9 +3,8 @@ setlocal enabledelayedexpansion
 
 :: Setting environment variables for lists
 set "clients_list=3"
-:: set "environments=CartPoleSwingUpFixInitState-v2 PendulumFixPos-v1 MountainCarFixPos-v1 HopperFixLength-v0 HalfCheetahFixLength-v0 CartPoleSwingUpActionScale-v1 PendulumActionScale-v1"
-:: set "environments=CartPoleSwingUpActionScale-v1 PendulumActionScale-v1"
-set "environments=CartPoleSwingUpV1WithAdjustablePole-v0"
+:: set "environments=CartPoleSwingUpFixInitState-v2 Pendulum-v1 HopperFixLength-v0 HalfCheetahFixLength-v0"
+set "environments=HopperFixLength-v0"
 set "model_list=PBPPO RNPPO PPO"
 set "total_cpu=9"
 
