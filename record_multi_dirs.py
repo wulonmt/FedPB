@@ -21,6 +21,7 @@ from pathlib import Path
 
 from utils.init_pos_config import is_valid_env, is_costum_env
 from utils.PerturbationPPO import PerturbationPPO
+from normalized_env import get_eval_norm_env
 
 MODEL_DICT = {
     "PPO": PPO,
@@ -29,85 +30,7 @@ MODEL_DICT = {
     "PBPPO_regul1": PerturbationPPO,
 }
 
-class RewardDisplayWrapper(gym.Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        self.cumulative_reward = 0
-        self.current_reward = 0
-        
-    def reset(self, **kwargs):
-        self.cumulative_reward = 0
-        self.current_reward = 0
-        return super().reset(**kwargs)
-        
-    def step(self, action):
-        obs, reward, done, truncated, info = super().step(action)
-        self.current_reward = reward
-        self.cumulative_reward += reward
-            
-        return obs, reward, done, truncated, info
-        
-    def render(self):
-        img = super().render()
-        
-        img = np.ascontiguousarray(img, dtype=np.uint8)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        
-        # 準備文字
-        text_curr = f'Current Reward: {self.current_reward:.2f}'
-        text_cum = f'Accumulated Reward: {self.cumulative_reward:.2f}'
-        
-        # 獲取文字大小
-        (curr_width, curr_height), _ = cv2.getTextSize(text_curr, font, 0.5, 1)
-        (cum_width, cum_height), _ = cv2.getTextSize(text_cum, font, 0.5, 1)
-        
-        # 使用最大寬度
-        max_width = max(curr_width, cum_width)
-        total_height = curr_height + cum_height + 10
-        
-        # 添加背景
-        overlay = img.copy()
-        cv2.rectangle(
-            overlay, 
-            (5, 5), 
-            (10 + max_width, 15 + total_height), 
-            (0, 0, 0), 
-            -1
-        )
-        cv2.addWeighted(overlay, 0.3, img, 0.7, 0, img)
-        
-        # 添加文字
-        cv2.putText(
-            img, 
-            text_curr, 
-            (10, 20), 
-            font, 
-            0.5, 
-            (255, 255, 255), 
-            1, 
-            cv2.LINE_AA
-        )
-        
-        cv2.putText(
-            img, 
-            text_cum, 
-            (10, 20 + curr_height + 5),
-            font, 
-            0.5, 
-            (255, 255, 255), 
-            1, 
-            cv2.LINE_AA
-        )
-        
-        return img
-
-def make_wrapped_env(env_name, i=0):
-    def _init():
-        env = gym.make(env_name, render_mode="rgb_array", **get_init_pos(env_name, i))
-        return RewardDisplayWrapper(env)
-    return _init
-
-def make_eval_env(env_name: str, index: int):
+def make_standard_eval_env(env_name: str, npz_path: str, index: int):
     """
     創建評估用的環境
     
@@ -118,10 +41,12 @@ def make_eval_env(env_name: str, index: int):
     Returns:
         gym.Env: 評估環境
     """
-    if not is_costum_env(env_name):
-        env = gym.make(env_name)
-    else:
-        env = gym.make(env_name, **get_init_pos(env_name, index))
+    env_root = Path(npz_path).parent
+    vec_norm_path = env_root / Path(env_name) / Path("0_PerturbPPO")
+    env = get_eval_norm_env(
+        env_name=env_name,
+        path=str(vec_norm_path),
+        index=index)
     return env
 
 def load_params_to_model(env, npz_path, model_class=PPO, verbose=False):
@@ -178,237 +103,6 @@ def load_params_to_model(env, npz_path, model_class=PPO, verbose=False):
         print(f"Loaded {len(policy_keys)} policy parameters")
     
     return model
-
-def load_npz_from_folders(folder_list_path: str, base_path: Optional[str] = None) -> Dict[str, Tuple[str, str]]:
-    """
-    從文本文件中讀取資料夾列表，並加載每個資料夾中的第一個 .npz 文件
-    
-    Args:
-        folder_list_path (str): 包含資料夾名稱列表的文本文件路徑
-        base_path (str, optional): 基礎路徑，如果提供，資料夾路徑會相對於這個基礎路徑
-    
-    Returns:
-        Dict[str, Tuple[str, str]]: 以資料夾名為鍵，(環境名, npz路徑) 元組為值的字典
-    """
-    # 檢查文本文件是否存在
-    if not os.path.exists(folder_list_path):
-        raise FileNotFoundError(f"找不到文件列表：{folder_list_path}")
-    
-    # 讀取資料夾列表
-    with open(folder_list_path, 'r') as f:
-        folders = [line.strip().strip("\"") for line in f if line.strip()]
-    
-    # 存儲加載的 npz 文件
-    loaded_files = {}
-    failed_folders = []
-    
-    # 處理每個資料夾
-    for folder in folders:
-        # 構建完整路徑
-        if base_path:
-            full_folder_path = os.path.join(base_path, folder)
-        else:
-            full_folder_path = folder
-            
-        try:
-            if not os.path.exists(full_folder_path):
-                raise FileNotFoundError(f"資料夾不存在：{full_folder_path}")
-            
-            # 使用 glob 找到資料夾中的所有 .npz 文件
-            npz_files = glob(os.path.join(full_folder_path, "*.npz"))
-            
-            if not npz_files:
-                raise FileNotFoundError(f"在資料夾中找不到 .npz 文件：{full_folder_path}")
-            
-            if len(npz_files) > 1:
-                print(f"警告：{folder} 包含多個 .npz 文件，將使用：{os.path.basename(npz_files[0])}")
-            
-            # 加載第一個找到的 npz 文件
-            npz_path = npz_files[0]
-            environment = folder.split("_")[-3]
-            assert is_valid_env(environment), f"Invalid environment name: {environment}"
-            loaded_files[folder] = (environment, npz_path)
-            
-        except Exception as e:
-            print(f"加載失敗 {folder}: {str(e)}")
-            failed_folders.append((folder, str(e)))
-            continue
-    
-    # 打印摘要
-    print("\n加載摘要:")
-    print(f"成功加載: {len(loaded_files)}/{len(folders)} 個文件")
-    if failed_folders:
-        print("\n加載失敗的資料夾:")
-        for folder, error in failed_folders:
-            print(f"- {folder}: {error}")
-    
-    return loaded_files
-
-def evaluate_models_on_all_indices(
-    npz_files: Dict[str, Tuple[str, str]],
-    n_eval_episodes: int = 10,
-    output_dir: str = ".",
-    output_prefix: str = "evaluation"
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    評估所有模型在不同環境索引上的表現，並輸出 CSV 表格
-    
-    Args:
-        npz_files: 字典，格式為 {folder_name: (env_name, npz_path)}
-        n_eval_episodes: 每個環境索引評估的 episode 數量
-        output_dir: 輸出目錄
-        output_prefix: 輸出文件前綴
-    
-    Returns:
-        Tuple[pd.DataFrame, pd.DataFrame]: (mean_df, std_df)
-    """
-    # 確保輸出目錄存在
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 初始化結果字典
-    results_mean = {}
-    results_std = {}
-    
-    print("\n" + "="*80)
-    print("開始評估模型...")
-    print("="*80)
-    
-    # 遍歷所有模型
-    for folder_name, (env_name, npz_path) in npz_files.items():
-        print(f"\n處理模型: {folder_name}")
-        print(f"環境: {env_name}")
-        print(f"模型路徑: {npz_path}")
-        
-        model_means = {}
-        model_stds = {}
-        
-        # 獲取環境的索引列表
-        try:
-            init_list = get_init_list(env_name)
-            n_indices = len(init_list)
-        except:
-            # 如果獲取失敗，默認使用 0-4
-            n_indices = 5
-            print(f"警告: 無法獲取 {env_name} 的初始化列表，使用默認索引 0-4")
-        
-        # 評估每個索引
-        for index in range(n_indices):
-            print(f"  評估索引 {index}...", end=" ")
-            try:
-                # 創建評估環境
-                eval_env = make_eval_env(env_name, index)
-                
-                # 加載模型
-                model = load_params_to_model(eval_env, npz_path, verbose=False)
-                
-                # 評估模型
-                mean_reward, std_reward = evaluate_policy(
-                    model, 
-                    eval_env, 
-                    n_eval_episodes=n_eval_episodes,
-                    deterministic=True
-                )
-                
-                model_means[f"Index_{index}"] = mean_reward
-                model_stds[f"Index_{index}"] = std_reward
-                
-                print(f"Mean: {mean_reward:.2f}, Std: {std_reward:.2f}")
-                
-                # 關閉環境
-                eval_env.close()
-                
-            except Exception as e:
-                print(f"失敗: {str(e)}")
-                model_means[f"Index_{index}"] = np.nan
-                model_stds[f"Index_{index}"] = np.nan
-        
-        # 儲存該模型的結果
-        results_mean[folder_name] = model_means
-        results_std[folder_name] = model_stds
-    
-    # 創建 DataFrame
-    mean_df = pd.DataFrame.from_dict(results_mean, orient='index')
-    std_df = pd.DataFrame.from_dict(results_std, orient='index')
-    
-    # 確保列的順序
-    columns_order = [f"Index_{i}" for i in range(n_indices)]
-    mean_df = mean_df[columns_order]
-    std_df = std_df[columns_order]
-    
-    # 輸出到 CSV
-    mean_csv_path = os.path.join(output_dir, f"{output_prefix}_mean.csv")
-    std_csv_path = os.path.join(output_dir, f"{output_prefix}_std.csv")
-    
-    mean_df.to_csv(mean_csv_path)
-    std_df.to_csv(std_csv_path)
-    
-    print("\n" + "="*80)
-    print("評估完成!")
-    print(f"Mean rewards 已儲存至: {mean_csv_path}")
-    print(f"Std rewards 已儲存至: {std_csv_path}")
-    print("="*80)
-    
-    # 打印結果摘要
-    print("\n=== Mean Rewards ===")
-    print(mean_df.to_string())
-    print("\n=== Std Rewards ===")
-    print(std_df.to_string())
-    
-    return mean_df, std_df
-
-def record(env_name, model_path, save_dir, video_length = None, episodes = 3):
-    """
-    錄製模型在環境中的表現
-    """
-    _env = make_eval_env(env_name, 0)
-    model = load_params_to_model(_env, model_path)
-    
-    for i in range(len(get_init_list(env_name))):
-        vec_env = DummyVecEnv([make_wrapped_env(env_name, i=i)])
-        
-        if video_length is None:
-            max_steps = vec_env.envs[0].spec.max_episode_steps
-            video_length = max_steps * episodes
-        
-        vec_env = VecVideoRecorder(vec_env, save_dir + "\\videos",
-                    record_video_trigger=lambda x: x == 0,
-                    name_prefix=f"env_index_{i}",
-                    video_length=video_length,)
-        
-        obs = vec_env.reset()
-        
-        for _ in range(video_length + 1):
-            action, _states = model.predict(obs, deterministic=True)
-            obs, _, _, _ = vec_env.step(action)
-        vec_env.close()
-
-def evaluate_multi_dirs(
-    folder_list_path: str = "record_dirs.txt",
-    n_eval_episodes: int = 10,
-    output_dir: str = "evaluation_results",
-    output_prefix: str = "model_evaluation"
-):
-    """
-    評估多個目錄中的模型並輸出 CSV
-    
-    Args:
-        folder_list_path: 包含資料夾列表的文本文件路徑
-        n_eval_episodes: 每個環境索引評估的 episode 數量
-        output_dir: 輸出目錄
-        output_prefix: 輸出文件前綴
-    """
-    # 加載所有 npz 文件
-    npz_files = load_npz_from_folders(folder_list_path=folder_list_path)
-    
-    # 評估所有模型
-    mean_df, std_df = evaluate_models_on_all_indices(
-        npz_files=npz_files,
-        n_eval_episodes=n_eval_episodes,
-        output_dir=output_dir,
-        output_prefix=output_prefix
-    )
-    
-    return mean_df, std_df
 
 def scan_experiment_root(root_dir: str) -> Dict[str, List[Tuple[str, str]]]:
     """
@@ -554,7 +248,8 @@ def evaluate_algorithms_on_all_indices(
                 
                 try:
                     # 創建評估環境
-                    eval_env = make_eval_env(env_name, index)
+                    # 使用index 0的vec_normalize.pkl作為標準環境
+                    eval_env = make_standard_eval_env(env_name=env_name, npz_path=npz_path, index=index)
                     
                     # 加載模型
                     model = load_params_to_model(eval_env, npz_path, MODEL_DICT[alg_name], verbose=False)
@@ -662,7 +357,7 @@ def record_all_models(
             
             try:
                 # 加載模型
-                env = make_eval_env(env_name, 0)
+                env = make_standard_eval_env(env_name=env_name, npz_path=npz_path, index=0)
                 model = load_params_to_model(env, npz_path, MODEL_DICT[alg_name], verbose=False)
                 env.close()
                 
@@ -674,6 +369,7 @@ def record_all_models(
                         env_name=env_name,
                         index=i,
                         model=model,
+                        npz_path=npz_path,
                         save_dir=video_dir,
                         video_length=video_length,
                         episodes=episodes
@@ -689,6 +385,7 @@ def record_single_model(
     env_name: str,
     index: int,
     model,
+    npz_path: str,
     save_dir: str,
     video_length: int = None,
     episodes: int = 3
@@ -696,13 +393,7 @@ def record_single_model(
     """
     錄製單一模型在特定索引的影片
     """
-    def make_wrapped_env(env_name, i=0):
-        def _init():
-            env = gym.make(env_name, render_mode="rgb_array", **get_init_pos(env_name, i))
-            return RewardDisplayWrapper(env)
-        return _init
-    
-    vec_env = DummyVecEnv([make_wrapped_env(env_name, index)])
+    vec_env = make_standard_eval_env(env_name=env_name, npz_path=npz_path, index=index)
     
     if video_length is None:
         max_steps = vec_env.envs[0].spec.max_episode_steps
@@ -784,23 +475,24 @@ def evaluate_and_record_experiments(
     
     return mean_df, std_df
 
+def paser_argument():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-r", "--root_dir", help="evaluation root dir", type=str, default ="multiagent/experiment_results")
+    parser.add_argument("-s", "--save_dir", help="evaluation save dir", type=str, default = "evaluation_results/") #parser can't pass bool
+    parser.add_argument("--record", help="record videos", action="store_true")
+
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    import sys
+    args = paser_argument()
     
-    if len(sys.argv) > 1:
-        root_dir = sys.argv[1]
-    else:
-        root_dir = "multiagent/experiment_results"  # 預設路徑
-
-    default_output_dir = "evaluation_results/" + root_dir.split("/")[-1]
     # 執行完整評估和錄影
     mean_df, std_df = evaluate_and_record_experiments(
-        root_dir=root_dir,
+        root_dir=args.root_dir,
         n_eval_episodes=10,
-        output_dir=default_output_dir,
+        output_dir=args.save_dir,
         output_prefix="algorithm_comparison",
-        record_videos=True,
+        record_videos=args.record,
         video_length=None,  # 自動根據環境設定
         episodes=3
     )
